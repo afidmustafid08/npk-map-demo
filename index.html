@@ -37,7 +37,7 @@
     const map = L.map('map').setView([-8.6530, 116.3440], 16);
     const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxNativeZoom: 19, // level tertinggi yang tersedia di banyak area
-      maxZoom: 22,       // Leaflet akan memperbesar tile terakhir agar tetap bisa zoom
+      maxZoom: 20,       // Leaflet akan memperbesar tile terakhir agar tetap bisa zoom
       attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics'
     }).addTo(map);
 

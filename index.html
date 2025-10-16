@@ -2,22 +2,25 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Peta NPK Demo — Esri World Imagery + Firebase</title>
+  <title>Peta NPK Demo — Esri World Imagery + Firebase (Revised)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
-  <style> html,body,#map{height:100%;margin:0;padding:0} .legend{background:#fff;padding:6px} </style>
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+    .leaflet-control-layers { font-size: 14px; }
+  </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <!-- Firebase (compat) -->
+  <!-- Firebase (compat for simplicity) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
   <!-- Leaflet -->
   <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 
   <script>
-    // ---------- CONFIG: Ganti dengan config Firebase Anda ----------
+    // ======== GANTI DENGAN CONFIG FIREBASE ANDA ========
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyBfkTfceiBKwG8rNhKF5AmYCr9juvORrR8",
       authDomain: "esp-npk-gp.firebaseapp.com",
@@ -27,42 +30,76 @@
       messagingSenderId: "159159492837",
       appId: "1:159159492837:web:24defd5d667e22354f340c"
     };
-    // ----------------------------------------------------------------
+    // ===================================================
 
-    // Inisialisasi Firebase
+    // Init Firebase
     firebase.initializeApp(FIREBASE_CONFIG);
     const db = firebase.database();
 
-    // Inisialisasi peta (Esri World Imagery sebagai basemap)
-    const map = L.map('map').setView([-8.6530, 116.3440], 16);
-    const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxNativeZoom: 19,   // native imagery often ends around 19
-      maxZoom: 22,         // allow digital zoom (no Esri warning)
-      errorTileUrl: transparentPng, // hide "not yet available" tiles
-      attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics
-    }).addTo(map);
+    // Map init
+    const map = L.map('map', {
+      center: [-8.6530, 116.3440],
+      zoom: 16,
+      zoomControl: true
+    });
 
-    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
-    L.control.layers({ "Satellite (Esri)": esriSat, "Street (OSM)": street }).addTo(map);
+    // Transparent 1x1 PNG (to avoid 'map data not yet available' tiles)
+    const transparentPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAn8B+G3mC1QAAAAASUVORK5CYII=';
 
+    // Esri World Imagery with safe zoom settings
+    const esriSat = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxNativeZoom: 19,   // native imagery often ends around 19
+        maxZoom: 22,         // allow digital zoom (no Esri warning)
+        errorTileUrl: transparentPng, // hide "not yet available" tiles
+        attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics'
+    });
+
+    // Street fallback (high zoom supported globally)
+    const street = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 22, attribution: '© OpenStreetMap contributors' }
+    );
+
+    // Start with Esri
+    esriSat.addTo(map);
+
+    // Layer switcher
+    const baseMaps = { "Satellite (Esri)": esriSat, "Street (OSM)": street };
+    L.control.layers(baseMaps, null, { collapsed: false }).addTo(map);
+
+    // Auto-switch to OSM when zoom exceeds Esri native zoom
+    const NATIVE_MAX = 19;
+    map.on('zoomend', () => {
+      const z = map.getZoom();
+      if (z > NATIVE_MAX && !map.hasLayer(street)) {
+        street.addTo(map);
+      }
+      // Optional: remove OSM again when zooming out
+      if (z <= NATIVE_MAX && map.hasLayer(street) && map.hasLayer(esriSat)) {
+        // map.removeLayer(street);
+      }
+    });
+
+    // Marker store
     const markers = {}; // key = device_ts
 
     function npkColor(n) {
-      if (n >= 1.2) return '#2ecc71'; // hijau
-      if (n >= 0.8) return '#f39c12'; // oranye
-      return '#e74c3c';               // merah
+      if (n >= 1.2) return '#2ecc71'; // green
+      if (n >= 0.8) return '#f39c12'; // orange
+      return '#e74c3c';               // red
     }
 
     function addOrUpdateMarker(device, ts, entry) {
       const key = device + '_' + ts;
-      if (!entry || entry.lat === undefined || entry.lon === undefined) return;
+      if (!entry || typeof entry.lat !== 'number' || typeof entry.lon !== 'number') return;
 
       if (markers[key]) {
         markers[key].setLatLng([entry.lat, entry.lon]);
         return;
       }
 
-      const color = npkColor(entry.n ?? 0);
+      const color = npkColor(Number(entry.n || 0));
       const marker = L.circleMarker([entry.lat, entry.lon], {
         radius: 8, weight: 1, fillOpacity: 0.9, fillColor: color, color: '#000'
       }).addTo(map);
@@ -77,7 +114,7 @@
       markers[key] = marker;
     }
 
-    // Realtime listener: ketika ada perubahan data di /locations
+    // Realtime listener
     const locRef = db.ref('/locations');
     locRef.on('value', (snapshot) => {
       const data = snapshot.val();
@@ -88,16 +125,15 @@
           addOrUpdateMarker(device, ts, entries[ts]);
         }
       }
+      // Auto-fit after initial load
+      setTimeout(() => {
+        const layerList = Object.values(markers);
+        if (layerList.length > 0) {
+          const group = L.featureGroup(layerList);
+          map.fitBounds(group.getBounds().pad(0.2));
+        }
+      }, 500);
     });
-
-    // Fit bounds setelah marker mulai masuk
-    setTimeout(() => {
-      const layerList = Object.values(markers);
-      if (layerList.length > 0) {
-        const group = L.featureGroup(layerList);
-        map.fitBounds(group.getBounds().pad(0.2));
-      }
-    }, 3000);
   </script>
 </body>
 </html>

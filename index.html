@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Peta NPK Demo — Esri World Imagery + Firebase</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
+  <style> html,body,#map{height:100%;margin:0;padding:0} .legend{background:#fff;padding:6px} </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+  <!-- Leaflet -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+  <script>
+    // ---------- CONFIG: Ganti dengan config Firebase Anda ----------
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyBfkTfceiBKwG8rNhKF5AmYCr9juvORrR8",
+      authDomain: "esp-npk-gp.firebaseapp.com",
+      databaseURL: "https://esp-npk-gp-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "esp-npk-gp",
+      storageBucket: "esp-npk-gp.firebasestorage.app",
+      messagingSenderId: "159159492837",
+      appId: "1:159159492837:web:24defd5d667e22354f340c"
+    };
+    // ----------------------------------------------------------------
+
+    // Inisialisasi Firebase
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.database();
+
+    // Inisialisasi peta (Esri World Imagery sebagai basemap)
+    const map = L.map('map').setView([-8.6530, 116.3440], 16);
+    const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 20,
+      attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics'
+    }).addTo(map);
+
+    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+    L.control.layers({ "Satellite (Esri)": esriSat, "Street (OSM)": street }).addTo(map);
+
+    const markers = {}; // key = device_ts
+
+    function npkColor(n) {
+      if (n >= 1.2) return '#2ecc71'; // hijau
+      if (n >= 0.8) return '#f39c12'; // oranye
+      return '#e74c3c';               // merah
+    }
+
+    function addOrUpdateMarker(device, ts, entry) {
+      const key = device + '_' + ts;
+      if (!entry || entry.lat === undefined || entry.lon === undefined) return;
+
+      if (markers[key]) {
+        markers[key].setLatLng([entry.lat, entry.lon]);
+        return;
+      }
+
+      const color = npkColor(entry.n ?? 0);
+      const marker = L.circleMarker([entry.lat, entry.lon], {
+        radius: 8, weight: 1, fillOpacity: 0.9, fillColor: color, color: '#000'
+      }).addTo(map);
+
+      const popup = `<b>Device:</b> ${entry.device_id || device}<br/>
+        <b>Lat, Lon:</b> ${entry.lat}, ${entry.lon}<br/>
+        <b>N:</b> ${entry.n ?? '-'} &nbsp; <b>P:</b> ${entry.p ?? '-'} &nbsp; <b>K:</b> ${entry.k ?? '-'}<br/>
+        <b>Accuracy:</b> ${entry.accuracy ?? '-'} m<br/>
+        <b>TS:</b> ${new Date(entry.ts || Number(ts)).toLocaleString()}`;
+
+      marker.bindPopup(popup);
+      markers[key] = marker;
+    }
+
+    // Realtime listener: ketika ada perubahan data di /locations
+    const locRef = db.ref('/locations');
+    locRef.on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      for (const device in data) {
+        const entries = data[device];
+        for (const ts in entries) {
+          addOrUpdateMarker(device, ts, entries[ts]);
+        }
+      }
+    });
+
+    // Fit bounds setelah marker mulai masuk
+    setTimeout(() => {
+      const layerList = Object.values(markers);
+      if (layerList.length > 0) {
+        const group = L.featureGroup(layerList);
+        map.fitBounds(group.getBounds().pad(0.2));
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

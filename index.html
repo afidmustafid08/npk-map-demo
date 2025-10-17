@@ -2,18 +2,17 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Peta NPK Demo — Esri World Imagery + Firebase (Revised)</title>
+  <title>Peta NPK Demo — Esri Imagery Only (Upscale Last Tile)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
-    .leaflet-control-layers { font-size: 14px; }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <!-- Firebase (compat for simplicity) -->
+  <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
   <!-- Leaflet -->
@@ -43,43 +42,22 @@
       zoomControl: true
     });
 
-    // Transparent 1x1 PNG (to avoid 'map data not yet available' tiles)
+    // Transparent 1x1 PNG to avoid Esri "not available" tiles showing
     const transparentPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAn8B+G3mC1QAAAAASUVORK5CYII=';
 
-    // Esri World Imagery with safe zoom settings
+    // Esri World Imagery — upscale last available tile beyond native zoom
     const esriSat = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxNativeZoom: 19,   // native imagery often ends around 19
-        maxZoom: 22,         // allow digital zoom (no Esri warning)
-        errorTileUrl: transparentPng, // hide "not yet available" tiles
+        // Set native max for your area; try 18 if 19 still shows warnings
+        maxNativeZoom: 19,
+        maxZoom: 22,             // allow zooming in further (digital upscale)
+        errorTileUrl: transparentPng,
+        noWrap: true,
         attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics'
-    });
+    }).addTo(map);
 
-    // Street fallback (high zoom supported globally)
-    const street = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { maxZoom: 22, attribution: '© OpenStreetMap contributors' }
-    );
-
-    // Start with Esri
-    esriSat.addTo(map);
-
-    // Layer switcher
-    const baseMaps = { "Satellite (Esri)": esriSat, "Street (OSM)": street };
-    L.control.layers(baseMaps, null, { collapsed: false }).addTo(map);
-
-    // Auto-switch to OSM when zoom exceeds Esri native zoom
-    const NATIVE_MAX = 18;
-    map.on('zoomend', () => {
-      const z = map.getZoom();
-      if (z > NATIVE_MAX && !map.hasLayer(street)) {
-        street.addTo(map);
-      }
-      // Optional: remove OSM again when zooming out
-      if (z <= NATIVE_MAX && map.hasLayer(street) && map.hasLayer(esriSat)) {
-        // map.removeLayer(street);
-      }
-    });
+    // (Optional) enforce map max zoom too
+    map.setMaxZoom(22);
 
     // Marker store
     const markers = {}; // key = device_ts
